@@ -1,16 +1,10 @@
 import os
 from pathlib import Path
-import shutil
-import zipfile
 import numpy as np
 import matplotlib.pyplot as plt
-# from matplotlib.pyplot import cm
 import re
 import chardet
-import difflib as dl
-from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
-import multiprocessing
 import faiss
 from collections import Counter
 import io
@@ -19,8 +13,6 @@ import sys
 MISSING = 'FILE MISSING' # Output as log content when file is missing
 EMPTY = 'EMPTY' # Output as log content when file is empty
 READ_ERROR = 'READ ERROR' # Output as log content if error occurs while reading file
-DEFAULT_MODEL_OUT_SIZE = 768 # Default output size of the model
-STDOUT = sys.stdout
 
 def read_log_file(log_file, preprocessor=None, max_entries=None, verbose=False):
     try:
@@ -51,58 +43,6 @@ def read_log_file(log_file, preprocessor=None, max_entries=None, verbose=False):
         lines = lines[1:]
     return lines
     
-
-def replace_substrings(strings):
-    """
-    This function applies a series of regex patterns to normalize variable data like:
-    - Dates and times to tokens like 'DATE', 'TIME'
-    - Version numbers to 'VERSION'
-    - URLs to 'URL'
-    - File paths to 'FILEPATH'
-    - Large integers and hex values to 'LARGEINT', 'HEX'
-    
-    Parameters
-    ----------
-    strings : list
-        List of log entry strings to standardize
-        
-    Returns
-    -------
-    list
-        List of log entries with variable content replaced by standardized tokens
-    """
-    patterns = [
-        (r"'[a-zA-Z0-9-_]{16,}'", 'QUOTED_ALPHANUMERIC'), # 16 or more alphanumerics, -, or _, in single quotes, like 'sCs0_asG-352'
-        (r'\d{2}/\d{2}/\d{4}', 'DATE'),  # Date pattern (e.g., 12/31/2021)
-        (r'\d{4}-\d{2}-\d{2}', 'DATE'),
-        (r'DATE_\d{2}', 'DATE_XX'),
-        (r'\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b', 'DATE'),
-        (r'\d{2}:\d{2}(?::\d{2}(?:\.\d{3})?)?', 'TIME'),  # Time pattern (e.g., 09:30:12)
-        (r'\d{2}:\d{2}', 'TIME'),  # Time pattern (e.g., 09:30)
-        (r'\d{1,2}\.\d{1,2}\.\d{4} \d{1,2}\.\d{1,2}\.\d{2}', 'DATETIME'),
-        (r'\d{1,5}(?:\.\d{1,3}){1,4}', 'VERSION'),  # Version number pattern (e.g., 1.2.3, 1.2.3.4)
-        (r'(https?://[^\s]+)', 'URL'),  # URL pattern (e.g., http://example.com)
-        (r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{2}| \d) \d{4}\b', 'DATE'),  # Date pattern (e.g., Nov 15 2022)
-        (r'\d{4}-[0-9A-Fa-f]{16}', 'TXID'),  # TXID pattern (e.g., 1234-ABCDEF1234567890)
-        (r'[A-Za-z]:\\(?:[^\\\n]+\\)*[^\\\n]+', 'FILEPATH'),  # Windows path pattern (e.g., C:\Users\user\Documents)
-        (r'(?<="x-apikey":\s")[^"]+', 'APIKEY'),  # API key pattern (e.g., "x-apikey": "1234567890")
-        (r'\b\d+\s+ms\b', 'TIMEMS'),
-        (r'-?\d{1,4}s', 'SECONDS'),
-        (r'(?:[0-9A-Fa-f]{4,}-)+[0-9A-Fa-f]{4,}', 'HEXBLOCKS'),
-        (r'0x[0-9A-Fa-f]+', 'HEX'),
-        (r'([0-9A-Fa-f]{6,})', 'HEX'),
-        (r'\d{4,}', 'LARGEINT'),
-        # Add more patterns as needed
-    ]
-
-    compiled_replacements = [(re.compile(pattern), replacement) for pattern, replacement in patterns]
-
-    for i in range(len(strings)):
-        for pattern, replacement in compiled_replacements:
-            strings[i] = pattern.sub(replacement, strings[i])
-
-    return strings
-
 def get_entries_by_paths(df, log_data_dir, max_entries=None):
     # Returns a list of lists of entries.
     # If df has a column called 'log_entries', use that.
